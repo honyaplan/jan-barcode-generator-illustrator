@@ -1,10 +1,34 @@
 #target illustrator
 
 // Define constants
-var BATCH_SIZE = 10;
-var BREAK_POINT = 300;
-var SLEEP_TIME_SHORT = 100;
-var SLEEP_TIME_LONG = 2000;
+var BATCH_SIZE = 5;
+var BREAK_POINT = 100;
+var SLEEP_TIME_SHORT = 10;
+var SLEEP_TIME_LONG = 100;
+
+// Global variables
+var janFont;
+var reuseDoc;
+
+/**
+ * Initializes the font
+ */
+function initializeFont() {
+    janFont = app.textFonts.getByName("JANCODE-nicWabun");
+}
+
+/**
+ * Gets or creates a reusable document
+ * @returns {Document} Reusable document
+ */
+function getReuseDocument() {
+    if (!reuseDoc || !reuseDoc.alive) {
+        reuseDoc = app.documents.add(DocumentColorSpace.RGB, 200, 90);
+    } else {
+        reuseDoc.pageItems.removeAll();
+    }
+    return reuseDoc;
+}
 
 /**
  * Creates a UI panel and gets user input
@@ -18,7 +42,7 @@ function createUIPanel() {
     // JAN code input
     dialog.add('statictext', undefined, 'Enter JAN codes (one per line):');
     var janInput = dialog.add('edittext', undefined, '', {multiline: true});
-    janInput.size = [300, 200];
+    janInput.size = [800, 200];
     
     // OK button
     var okButton = dialog.add('button', undefined, 'OK');
@@ -51,11 +75,17 @@ function createUIPanel() {
  */
 function createProgressBar(title, maxValue) {
     var win = new Window("palette", title, undefined, {closeButton: false});
+    win.preferredSize.width = 600; // ウィンドウ全体の幅を400に設定
+
     win.progressBar = win.add("progressbar", undefined, 0, maxValue);
-    win.progressBar.preferredSize.width = 300;
+    win.progressBar.preferredSize.width = 580; // プログレスバーの幅を380に増やしました
+
     win.status = win.add("statictext", undefined, "Processing: 0/" + maxValue);
+    win.status.preferredSize.width = 580; // ステータステキストの幅を380に設定
+
     win.cancelButton = win.add("button", undefined, "Cancel");
     win.cancelButton.onClick = function() { win.close(); };
+
     win.show();
     return win;
 }
@@ -66,33 +96,46 @@ function createProgressBar(title, maxValue) {
  * @param {string} outputFolder Path to output folder
  */
 function createBarcodes(janList, outputFolder) {
+    initializeFont();
     var progressWin = createProgressBar("Generating Barcodes", janList.length);
     var isCancelled = false;
     var skippedCount = 0;
 
+    // 定数を定義
+    var BATCH_SIZE = 5;
+    var BREAK_POINT = 100;
+    var SLEEP_TIME_SHORT = 10;
+    var SLEEP_TIME_LONG = 100;
+
     for (var i = 0; i < janList.length && !isCancelled; i += BATCH_SIZE) {
         var batch = janList.slice(i, Math.min(i + BATCH_SIZE, janList.length));
-        skippedCount += processBatchAndCountSkipped(batch, outputFolder);
+        try {
+            skippedCount += processBatchAndCountSkipped(batch, outputFolder);
+        } catch (e) {
+            alert("Error processing batch: " + e.message);
+        }
         
-        // Update progress bar
+        // プログレスバーを更新
         progressWin.progressBar.value = i + batch.length;
         progressWin.status.text = "Processing: " + (i + batch.length) + "/" + janList.length + " (Skipped: " + skippedCount + ")";
-        
-        // Update UI
         progressWin.update();
         
-        // Check for cancellation
         if (progressWin.cancelButton.pressed) {
             isCancelled = true;
         }
         
+        // 短い休止を入れる
         $.sleep(SLEEP_TIME_SHORT);
+        $.gc();
 
+        // 一定間隔で長めの休止を入れる
         if ((i + batch.length) % BREAK_POINT === 0 && i + batch.length < janList.length) {
-            progressWin.status.text = "Taking a short break...";
-            progressWin.update();
             $.sleep(SLEEP_TIME_LONG);
         }
+    }
+
+    if (reuseDoc && reuseDoc.alive) {
+        reuseDoc.close(SaveOptions.DONOTSAVECHANGES);
     }
 
     progressWin.close();
@@ -122,7 +165,7 @@ function processBatchAndCountSkipped(batch, outputFolder) {
                 continue;
             }
             
-            var doc = createDocument();
+            var doc = getReuseDocument();
             createBarcodeText(doc, jan);
             
             if (!svgFile.exists) {
@@ -132,22 +175,12 @@ function processBatchAndCountSkipped(batch, outputFolder) {
             if (!pngFile.exists) {
                 exportPNG(doc, batch[i], outputFolder);
             }
-            
-            doc.close(SaveOptions.DONOTSAVECHANGES);
         } else {
             alert("Invalid JAN code: " + batch[i]);
         }
     }
     $.gc();
     return skippedCount;
-}
-
-/**
- * Creates a new document
- * @returns {Document} Created document
- */
-function createDocument() {
-    return app.documents.add(DocumentColorSpace.RGB, 200, 90);
 }
 
 /**
@@ -158,25 +191,17 @@ function createDocument() {
 function createBarcodeText(doc, jan) {
     var textFrame = doc.textFrames.add();
     textFrame.contents = jan;
-    var font = app.textFonts.getByName("JANCODE-nicWabun");
-    textFrame.textRange.characterAttributes.textFont = font;
+    textFrame.textRange.characterAttributes.textFont = janFont;
     textFrame.textRange.characterAttributes.size = 72;
 
-    // Get document dimensions
     var docWidth = doc.width;
     var docHeight = doc.height;
-
-    // Get text frame dimensions
     var textWidth = textFrame.width;
     var textHeight = textFrame.height;
-
-    // Calculate center position
     var centerX = (docWidth - textWidth) / 2;
-    var centerY = (docHeight + textHeight) / 2; // Illustrator's coordinate system goes from bottom to top
+    var centerY = (docHeight + textHeight) / 2;
 
-    // Position the barcode at the center
     textFrame.position = [centerX+5, centerY];
-
 }
 
 /**
