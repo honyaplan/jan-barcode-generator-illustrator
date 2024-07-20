@@ -20,15 +20,6 @@ function createUIPanel() {
     var janInput = dialog.add('edittext', undefined, '', {multiline: true});
     janInput.size = [300, 200];
     
-    // Position input
-    dialog.add('statictext', undefined, 'Enter X position for the barcode:');
-    var posXInput = dialog.add('edittext', undefined, '10');
-    posXInput.characters = 5;
-    
-    dialog.add('statictext', undefined, 'Enter Y position for the barcode:');
-    var posYInput = dialog.add('edittext', undefined, '85');
-    posYInput.characters = 5;
-    
     // OK button
     var okButton = dialog.add('button', undefined, 'OK');
     okButton.onClick = function() {
@@ -48,9 +39,7 @@ function createUIPanel() {
     }
     
     return {
-        janList: cleanedJanCodes,
-        positionX: parseFloat(posXInput.text),
-        positionY: parseFloat(posYInput.text)
+        janList: cleanedJanCodes
     };
 }
 
@@ -75,17 +64,15 @@ function createProgressBar(title, maxValue) {
  * Main function to generate barcodes
  * @param {Array} janList List of JAN codes
  * @param {string} outputFolder Path to output folder
- * @param {number} positionX X position
- * @param {number} positionY Y position
  */
-function createBarcodes(janList, outputFolder, positionX, positionY) {
+function createBarcodes(janList, outputFolder) {
     var progressWin = createProgressBar("Generating Barcodes", janList.length);
     var isCancelled = false;
     var skippedCount = 0;
 
     for (var i = 0; i < janList.length && !isCancelled; i += BATCH_SIZE) {
         var batch = janList.slice(i, Math.min(i + BATCH_SIZE, janList.length));
-        skippedCount += processBatchAndCountSkipped(batch, outputFolder, positionX, positionY);
+        skippedCount += processBatchAndCountSkipped(batch, outputFolder);
         
         // Update progress bar
         progressWin.progressBar.value = i + batch.length;
@@ -120,11 +107,9 @@ function createBarcodes(janList, outputFolder, positionX, positionY) {
  * Processes a batch and counts skipped files
  * @param {Array} batch Batch of JAN codes to process
  * @param {string} outputFolder Path to output folder
- * @param {number} positionX X position
- * @param {number} positionY Y position
  * @returns {number} Number of skipped files
  */
-function processBatchAndCountSkipped(batch, outputFolder, positionX, positionY) {
+function processBatchAndCountSkipped(batch, outputFolder) {
     var skippedCount = 0;
     for (var i = 0; i < batch.length; i++) {
         var jan = Jan(batch[i]);
@@ -138,7 +123,7 @@ function processBatchAndCountSkipped(batch, outputFolder, positionX, positionY) 
             }
             
             var doc = createDocument();
-            createBarcodeText(doc, jan, positionX, positionY);
+            createBarcodeText(doc, jan);
             
             if (!svgFile.exists) {
                 exportSVG(doc, batch[i], outputFolder);
@@ -162,23 +147,36 @@ function processBatchAndCountSkipped(batch, outputFolder, positionX, positionY) 
  * @returns {Document} Created document
  */
 function createDocument() {
-    return app.documents.add(DocumentColorSpace.RGB, 220, 100);
+    return app.documents.add(DocumentColorSpace.RGB, 200, 90);
 }
 
 /**
- * Creates barcode text
- * @param {Document} doc Document
+ * Creates barcode text and centers it on the canvas
+ * @param {Document} doc Illustrator document
  * @param {string} jan JAN code
- * @param {number} positionX X position
- * @param {number} positionY Y position
  */
-function createBarcodeText(doc, jan, positionX, positionY) {
+function createBarcodeText(doc, jan) {
     var textFrame = doc.textFrames.add();
     textFrame.contents = jan;
     var font = app.textFonts.getByName("JANCODE-nicWabun");
     textFrame.textRange.characterAttributes.textFont = font;
     textFrame.textRange.characterAttributes.size = 72;
-    textFrame.position = [positionX, positionY];
+
+    // Get document dimensions
+    var docWidth = doc.width;
+    var docHeight = doc.height;
+
+    // Get text frame dimensions
+    var textWidth = textFrame.width;
+    var textHeight = textFrame.height;
+
+    // Calculate center position
+    var centerX = (docWidth - textWidth) / 2;
+    var centerY = (docHeight + textHeight) / 2; // Illustrator's coordinate system goes from bottom to top
+
+    // Position the barcode at the center
+    textFrame.position = [centerX+5, centerY];
+
 }
 
 /**
@@ -275,9 +273,8 @@ function Eight(n) {
  * @returns {string|null} Processed JAN code or null if check digit is incorrect
  */
 function Thirteen(n) {
-    // Check if the check digit is correct
     if (parseInt(n.charAt(12)) !== CD(n.slice(0, 12))) {
-        return null; // Return null if check digit is incorrect
+        return null;
     }
 
     var Initial = [
@@ -297,8 +294,6 @@ function Thirteen(n) {
     strJanfont += "Z";
     return strJanfont;
 }
-
-
 
 /**
  * Gets the start code
@@ -320,11 +315,11 @@ function Jan(JANCODE) {
     if (!/^\d+$/.test(JANCODE)) return null;
     switch (JANCODE.length) {
         case 7:
-            return Eight("0" + JANCODE); // Add leading zero for 7-digit codes
+            return Eight("0" + JANCODE);
         case 8:
             return Eight(JANCODE);
         case 12:
-            return Thirteen("0" + JANCODE); // Add leading zero for 12-digit codes
+            return Thirteen("0" + JANCODE);
         case 13:
             return Thirteen(JANCODE);
         default:
@@ -337,7 +332,7 @@ try {
     var uiInput = createUIPanel();
     var outputFolder = getDesktopJANFolder();
     if (uiInput.janList.length > 0 && outputFolder) {
-        createBarcodes(uiInput.janList, outputFolder, uiInput.positionX, uiInput.positionY);
+        createBarcodes(uiInput.janList, outputFolder);
     } else {
         alert("Invalid input. Please enter JAN codes and ensure the output folder is correctly set.");
     }
